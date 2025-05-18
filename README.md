@@ -43,7 +43,7 @@ Bienvenue dans ce **LAB** d’initiation aux pratiques **DevOps** !
 
 ---
 
-**Avant de commencer sur `WINDOWS` :**  
+## **Avant de commencer sur `WINDOWS` :**  
 
 - [Installes chocolatey](https://chocolatey.org/install)
 
@@ -143,7 +143,7 @@ Plateforme de l’hyperviseur Windows.
 
 ---
 
-**Avant de commencer sur `MacOS` :**  
+## **Avant de commencer sur `MacOS` :**  
 
 - [Installes Homebrew](https://brew.sh/fr/)
 
@@ -248,7 +248,7 @@ vagrant plugin install vagrant-vmware-desktop
 
 ---
 
-**Avant de commencer sur `Linux Ubuntu 24` :**  
+## **Avant de commencer sur `Linux Ubuntu` :**  
 
 - [Installes Virtualbox](https://www.virtualbox.org/wiki/Linux_Downloads)
 
