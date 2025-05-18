@@ -1,0 +1,44 @@
+---
+- name: Installer Docker et configurer l'accès pour l'utilisateur vagrant
+  hosts: localhost
+  become: true
+  vars:
+    docker_install_script_url: https://get.docker.com
+
+  tasks:
+    - name: Installer les prérequis (curl)
+      package:
+        name: curl
+        state: present
+
+    - name: Télécharger et exécuter le script d'installation Docker
+      shell: |
+        curl -fsSL {{ docker_install_script_url }} -o /tmp/get-docker.sh
+        sh /tmp/get-docker.sh
+      args:
+        executable: /bin/bash
+
+    - name: S'assurer que Docker est démarré et activé
+      systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Ajouter l'utilisateur vagrant au groupe docker
+      user:
+        name: vagrant
+        groups: docker
+        append: yes
+
+    - name: Forcer la mise à jour des groupes (sans déconnexion)
+      shell: newgrp docker
+      become_user: vagrant
+      ignore_errors: true
+
+    - name: Vérifier la version de Docker installée
+      command: docker --version
+      register: docker_version
+
+    - name: Afficher la version de Docker installée
+      debug:
+        var: docker_version.stdout

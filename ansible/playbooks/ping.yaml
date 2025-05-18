@@ -1,0 +1,8 @@
+---
+
+- name: Tester la connexion SSH
+  hosts: all
+
+  tasks: 
+  - name: Test de connectivité
+    ping:

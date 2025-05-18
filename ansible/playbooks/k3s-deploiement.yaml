@@ -1,0 +1,176 @@
+---
+- name: Installer et configurer K3s Contrôleur
+  hosts: k3s_controleur
+  become: true
+  vars:
+    # Version de K3s
+    k3s_version: "v1.32.3+k3s1"
+    # SAN TLS pour l’API
+    k3s_tls_san: "{{ ansible_host }}"
+    coredns_ns: kube-system
+
+  tasks:
+    - name: Mettre à jour apt et installer curl
+      apt:
+        update_cache: yes
+        name: curl
+        state: present
+
+    - name: Installer K3s node controleur
+      shell: |
+        curl -sfL https://get.k3s.io | \
+          INSTALL_K3S_VERSION="{{ k3s_version }}" \
+          INSTALL_K3S_EXEC="server \
+            --tls-san {{ k3s_tls_san }} \
+            --write-kubeconfig-mode 0644" sh -
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Déployer /etc/rancher/k3s/config.yaml
+      copy:
+        dest: /etc/rancher/k3s/config.yaml
+        content: |
+          disable: servicelb
+          node-ip: {{ ansible_host }}
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Attendre le démarrage de l’API (6443)
+      wait_for:
+        port: 6443
+        state: started
+        delay: 5
+        timeout: 120
+
+    - name: Récupérer le token de jointure
+      slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_encoded
+
+    - name: Stocker le token en clair
+      set_fact:
+        k3s_token: "{{ k3s_token_encoded.content | b64decode | trim }}"
+
+    - name: Définir l’endpoint du serveur pour les agents
+      set_fact:
+        k3s_server_endpoint: "https://{{ ansible_host }}:6443"
+
+
+    - name: Appliquer un nouveau ConfigMap CoreDNS (forward externe)
+      shell: |
+        kubectl apply -f - <<EOF
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: coredns
+          namespace: {{ coredns_ns }}
+        data:
+          Corefile: |-
+            . {
+              errors
+              health { lameduck 5s }
+              kubernetes cluster.local in-addr.arpa ip6.arpa {
+                pods insecure
+                fallthrough in-addr.arpa ip6.arpa
+              }
+              forward . /etc/resolv.conf
+              cache 30
+              loop
+              reload
+              loadbalance
+            }
+        EOF
+
+    - name: Redémarrer CoreDNS pour prendre en compte la config
+      shell: |
+        kubectl -n {{ coredns_ns }} rollout restart deployment coredns
+
+    - name: Redémarrer le service k3s
+      systemd:
+        name: k3s
+        state: restarted
+        daemon_reload: yes
+
+- name: Installer et configurer K3s Agent
+  hosts: k3s_agent
+  become: true
+  vars:
+    k3s_version: "v1.32.3+k3s1"
+
+  tasks:
+    - name: Assurer la présence du dossier de config
+      file:
+        path: /etc/rancher/k3s
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Déployer /etc/rancher/k3s/config.yaml (agent)
+      copy:
+        dest: /etc/rancher/k3s/config.yaml
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          server: {{ hostvars[groups['k3s_controleur'][0]].k3s_server_endpoint }}
+          token:  {{ hostvars[groups['k3s_controleur'][0]].k3s_token }}
+          node-ip: {{ ansible_host }}
+
+    - name: Mettre à jour apt et installer curl
+      apt:
+        update_cache: yes
+        name: curl
+        state: present
+
+    - name: Installer K3s agent (binaire k3s)
+      shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="{{ k3s_version }}" INSTALL_K3S_EXEC="agent" sh -
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Démarrer / redémarrer le service k3s-agent
+      systemd:
+        name: k3s-agent
+        state: restarted
+        enabled: true
+
+- name: Déployer MetalLB en copiant le manifeste dans /var/lib/rancher/k3s/server/manifests
+  hosts: k3s_controleur
+  become: true
+  vars:
+    metallb_src: /vagrant/k3s/metallb.yaml
+    metallb_dest: /var/lib/rancher/k3s/server/manifests/metallb.yaml
+    metallb_pool: /vagrant/k3s/metallb-pool-l2.yaml
+
+  tasks:
+
+    - name: Copier le fichier metallb.yaml vers le dossier des manifests statiques de K3s
+      copy:
+        src: "{{ metallb_src }}"
+        dest: "{{ metallb_dest }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Attendre 60 secondes pour que MetalLB se déploie
+      pause:
+        seconds: 60
+
+    - name: Déployer MetalLB Pool & L2Advertisement via kubectl
+      shell: kubectl apply -f {{ metallb_pool }}
+      register: metallb_pool_resultat
+      retries: 3
+      delay: 5
+      until:  metallb_pool_resultat.rc == 0
+
+    - name: Vérifier l'état de k3s cluster
+      shell: kubectl get nodes --no-headers
+      register: k3s_nodes
+      changed_when: false
+      failed_when: k3s_nodes.rc != 0
+
+    - name: Afficher l'etat des nodes k3s
+      debug:
+        var: k3s_nodes.stdout

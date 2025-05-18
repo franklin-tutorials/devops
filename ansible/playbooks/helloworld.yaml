@@ -1,0 +1,11 @@
+---
+
+- name: Playbook Hello World
+  hosts: localhost
+
+  tasks:
+  - name: Affiche Hello World
+    debug:
+      msg: "Hello World"
+   
+
