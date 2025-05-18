@@ -1,6 +1,13 @@
 
 # Docker
 
+Docker est un outil qui permet de créer, déployer et exécuter des applications dans des conteneurs.
+
+Un conteneur est une petite boîte légère et autonome qui contient tout ce dont une application a besoin pour fonctionner :
+- Le code de l’application
+- Les dépendances (librairies, etc...)
+- La configuration
+
 ### 1. Installer docker sur `VM1`
 
 L'action est à réaliser sur `VM1` depuis le répertoire personnel de vagrant.
